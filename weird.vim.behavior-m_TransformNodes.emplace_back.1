@@ -1,0 +1,90 @@
+/**
+ * Coordinate Transform Library
+ *
+ * Copyright (c) Axis Communications AB
+ */
+
+#include "Common/Constants.hpp"
+#include "Common/NewTransformStep.hpp"
+#include "Common/TransformNode.hpp"
+#include "Common/TransformTypeHandler.hpp"
+
+#include "Server/Backend/Backend.hpp"
+#include "Server/MultiViewManager.hpp"
+#include "Server/SharedMemory.hpp"
+
+namespace CTL {
+	MultiViewManager::MultiViewManager(SharedMemory& sharedMemory,
+									   BackendBase& backend,
+									   TransformGraphServer& transformServerGraph)
+		: m_SharedMemory(sharedMemory), m_Backend(backend), m_TransformServerGraph(transformServerGraph) {
+		m_SharedMemory.Construct(CT::SharedMultiViewsName, m_SharedMultiViews);
+		m_SharedMemory.Construct(CT::SharedMultiViewsMutexName, m_SharedMultiViewsMutex);
+		TransformTypeHandler::RegisterTransformTypeManager(*this, TransformTypes::MULTIVIEW);
+	}
+
+	MultiViewManager::~MultiViewManager() {
+		LOG(Log::DEBUG) <<  " dtor!" << std::endl;
+		ReleaseTransform();
+		m_SharedMemory.Destroy(m_SharedMultiViews);
+		m_SharedMemory.Destroy(m_SharedMultiViewsMutex);
+		TransformTypeHandler::UnregisterTransformTypeManager(*this, TransformTypes::MULTIVIEW);
+	}
+
+	bool MultiViewManager::QueryTransform(const IPCPointer<TransformNode>& transformNode) {
+		TransformMultiView transformMultiView(m_SharedMemory.GetAllocator<TransformMultiView::Type>());
+		CTL::TransformInfo transformInfo(transformNode->GetStepName(), transformNode->GetChannel());
+		if (m_Backend.QueryTransformMultiView(transformInfo, true) == TransformResult::SUCCESS) {
+			if (m_Backend.CopyTransformMultiView(transformInfo, transformMultiView) !=
+				TransformResult::SUCCESS) {
+				LOG(Log::ERROR) << "Multi-view failed to copy" << std::endl;
+				return false;
+			}
+		}
+		else {
+			transformMultiView.subViews.push_back(transformNode->GetChannel());
+		}
+		return QuerySubViews(transformMultiView, transformNode);
+	}
+
+	bool MultiViewManager::QuerySubViews(TransformMultiView& transformMultiView,
+										 const IPCPointer<TransformNode>& transformNode) {
+		AddMultiView(transformNode->GetID(), transformMultiView);
+
+		IPCSet<IPCPointer<TransformNode>> dewarpNodes(
+			m_SharedMemory.GetAllocator<IPCPointer<TransformNode>>());
+		if (!m_TransformServerGraph.FindLinkedDewarpNode(transformNode, dewarpNodes)) {
+			LOG(Log::ERROR) << "Failed to find linked dewarp nodes" << std::endl;
+			return false;
+		}
+
+		bool success = true;
+		for (const IPCPointer<TransformNode>& dewarpNode : dewarpNodes) {
+			NewTransformStep NewTransformStep(dewarpNode, true);
+			success &= NewTransformStep.QueryTransform(transformMultiView.subViews);
+		}
+		if (!success) {
+			LOG(Log::ERROR) << "Multi-view failed to query the dewarp transform" << std::endl;
+		}
+		return success;
+	}
+
+	void MultiViewManager::AddMultiView(uint8_t transformStepID,
+										const TransformMultiView& transformMultiView) {
+		m_SharedMultiViewsMutex->lock();
+		m_SharedMultiViews->insert_or_assign(transformStepID, std::move(transformMultiView));
+		m_SharedMultiViewsMutex->unlock();
+	}
+
+	void MultiViewManager::ReleaseTransform() {
+		m_SharedMultiViewsMutex->lock();
+		for (auto const& [transformStepID, transform] : *m_SharedMultiViews) {
+            std::string stepName = m_TransformServerGraph.GetStepName(transformStepID);
+			CTL::TransformInfo transformInfo(stepName, transformStepID);
+			LOG(Log::DEBUG) << "Releasing transform (stepName=" << stepName
+							<< " transformStepID=" << +transformStepID << ")" << std::endl;
+			m_Backend.QueryReleaseTransform(transformInfo);
+		}
+		m_SharedMultiViewsMutex->unlock();
+	}
+} // namespace CTL

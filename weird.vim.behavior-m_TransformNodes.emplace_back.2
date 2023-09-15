@@ -1,0 +1,149 @@
+/**
+ * Coordinate Transform Library
+ *
+ * Copyright (c) Axis Communications AB
+ */
+
+#include <algorithm>
+#include <limits>
+#include <utility>
+
+#include "Common/Coordinate.hpp"
+#include "Common/Log.hpp"
+#include "Common/NewTransformStep.hpp"
+#include "Common/SharedMemoryBase.hpp"
+#include "Common/SpaceNode.hpp"
+#include "Common/TransformGraph.hpp"
+#include "Common/Utils.hpp"
+
+namespace CTL {
+
+	TransformGraph::TransformGraph(const SharedMemoryBase& memory)
+		: m_RegisteredTransformNodes(0), m_SpaceNodes(memory),
+		  m_TransformNodes(memory.GetAllocator<TransformNode>()) {
+	}
+
+	const IPCPointer<SpaceNode> TransformGraph::CreateSpace(const SpaceDescription& spaceDesc) {
+		IPCUpgradeableExclusiveLock lock(m_Mutex);
+		return m_SpaceNodes.Create(spaceDesc);
+	}
+
+	const IPCPointer<TransformNode>
+	TransformGraph::CreateTransformNode(const SharedMemoryBase& memory,
+										uint8_t channel,
+										const std::string& stepName,
+										const IPCPointer<SpaceNode>& fromSpace,
+										const IPCPointer<SpaceNode>& toSpace,
+										TransformTypes transformType) {
+		IPCUpgradeableExclusiveLock lock(m_Mutex);
+		if (m_RegisteredTransformNodes >= std::numeric_limits<uint8_t>::max()) {
+			LOG(Log::ERROR) << "Error, registerTransformNodes exceeded maximum capacity" << std::endl;
+			return IPCPointer<TransformNode>(&m_TransformNodes.back());
+		}
+
+		IPCPointer<TransformNode> node = &m_TransformNodes.emplace_back(
+			memory, ++m_RegisteredTransformNodes, channel, stepName, transformType, fromSpace, toSpace);
+		fromSpace->AddTransformNode(node);
+		toSpace->AddTransformNode(node);
+		return node;
+	}
+
+	bool TransformGraph::DeleteSpaceNode(const SpaceDescription& spaceDesc) {
+		IPCUpgradeableExclusiveLock lock(m_Mutex);
+		return m_SpaceNodes.Delete(spaceDesc);
+	}
+
+	bool TransformGraph::FindTransformNodes(const SharedMemoryBase& memory,
+											const TransformationDescription& transformDesc,
+											std::vector<NewTransformStep>& newTransformSteps) {
+		IPCUpgradeableSharableLock lock(m_Mutex);
+		if (m_SpaceNodes.Contains(transformDesc.FromSpace) && m_SpaceNodes.Contains(transformDesc.ToSpace)) {
+			return FindPath(memory, m_SpaceNodes.Get(transformDesc.FromSpace),
+							m_SpaceNodes.Get(transformDesc.ToSpace), newTransformSteps);
+		}
+
+		LOG(Log::ERROR) << "Failed to find to or from space" << std::endl;
+		return false;
+	}
+
+	void TransformGraph::UpdateTransfromType(uint8_t transformStepID, TransformTypes newTransformType) {
+		for (TransformNode& transformNode : m_TransformNodes) {
+			if (transformNode.GetID() == transformStepID) {
+				transformNode.UpdateTransformType(newTransformType);
+			}
+		}
+	}
+
+	bool TransformGraph::FindLinkedDewarpNode(const IPCPointer<TransformNode>& transformNode,
+											  IPCSet<IPCPointer<TransformNode>>& dewarpNodes) {
+		IPCUpgradeableSharableLock lock(m_Mutex);
+		for (const IPCPointer<SpaceNode>& preSpaceNode : transformNode->GetSpaceNodesA()) {
+			for (const IPCPointer<TransformNode>& node : preSpaceNode->GetTransformNodes()) {
+				if (node->GetIsDewarp()) {
+					dewarpNodes.insert(std::move(node));
+				}
+			}
+		}
+		return dewarpNodes.size() > 0;
+	}
+
+	bool TransformGraph::FindPath(const SharedMemoryBase& memory,
+								  const IPCPointer<SpaceNode>& fromSpace,
+								  const IPCPointer<SpaceNode>& toSpace,
+								  std::vector<NewTransformStep>& transformPath) const {
+		IPCSet<IPCPointer<SpaceNode>> visitedSpaces(memory.GetAllocator<IPCPointer<SpaceNode>>());
+		if (!FindPathRecursive(toSpace, fromSpace, visitedSpaces, transformPath)) {
+			LOG(Log::ERROR) << "Error, no path exist between " << fromSpace->ToString() << " and "
+							<< toSpace->ToString() << std::endl;
+			return false;
+		}
+		return true;
+	}
+
+	bool TransformGraph::FindPathRecursive(const IPCPointer<SpaceNode>& currentSpace,
+										   const IPCPointer<SpaceNode>& toSpace,
+										   IPCSet<IPCPointer<SpaceNode>>& visitedSpaces,
+										   std::vector<NewTransformStep>& transformPath) const {
+		if (!visitedSpaces.insert(currentSpace).second) {
+			return false;
+		}
+
+		const IPCList<IPCPointer<TransformNode>>& transformNodes = currentSpace->GetTransformNodes();
+		std::vector<std::pair<IPCPointer<TransformNode>, IPCPointer<SpaceNode>>> nodesToCheckNext;
+		nodesToCheckNext.reserve(transformNodes.size());
+
+		for (const IPCPointer<TransformNode>& transformNode : transformNodes) {
+			if (transformNode->HasSpaceNode(currentSpace)) {
+				const IPCSet<IPCPointer<SpaceNode>>& otherSpaceNodes =
+					transformNode->GetOppositeSpaceNodes(currentSpace);
+				if (otherSpaceNodes.contains(toSpace)) {
+					transformPath.emplace_back(transformNode, transformNode->IsForward(toSpace));
+					return true;
+				}
+				auto AddToCheckNext = [&nodesToCheckNext,
+									   &transformNode](const IPCPointer<SpaceNode>& spaceNode) {
+					nodesToCheckNext.emplace_back(transformNode, spaceNode);
+				};
+				std::for_each(std::begin(otherSpaceNodes), std::end(otherSpaceNodes), AddToCheckNext);
+			}
+		}
+
+		for (const std::pair<IPCPointer<TransformNode>, IPCPointer<SpaceNode>>& pair : nodesToCheckNext) {
+			if (FindPathRecursive(pair.second, toSpace, visitedSpaces, transformPath)) {
+				transformPath.emplace_back(pair.first, pair.first->IsForward(pair.second));
+				return true;
+			}
+		}
+		return false;
+	}
+
+	const std::string TransformGraph::GetStepName(int channel) const {
+		for (const CTL::TransformNode& node : m_TransformNodes) {
+			if (node.GetChannel() == channel) {
+				return node.GetStepName();
+			}
+		}
+		LOG(Log::ERROR) << "Failed to find Step name for channel: " << channel << std::endl;
+		return "";
+	}
+} // namespace CTL
