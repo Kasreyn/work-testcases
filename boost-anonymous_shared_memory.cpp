@@ -1,3 +1,131 @@
+#include <iostream>
+#include <cstring>
+#include <cstdlib>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <boost/interprocess/managed_external_buffer.hpp>
+#include <boost/interprocess/sync/interprocess_mutex.hpp>
+#include <boost/interprocess/containers/string.hpp>
+
+// Define the name for the shared memory segment
+const char* SharedMemoryName = "MySharedMemory";
+
+void WriteStringToSharedMemory(const char* message) {
+    // Create or open the shared memory segment using POSIX
+    key_t key = ftok("/tmp", 'R'); // Replace "/tmp" with your desired path
+    int shmId = shmget(key, 65536, IPC_CREAT | 0666);
+
+    if (shmId == -1) {
+        perror("shmget");
+        return;
+    }
+
+    // Attach to the shared memory segment
+    void* segmentAddress = shmat(shmId, nullptr, 0);
+
+    if (segmentAddress == (void*)-1) {
+        perror("shmat");
+        return;
+    }
+
+    // Create a managed_external_buffer and map the shared memory into it
+    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, segmentAddress, 65536);
+
+    // Create an interprocess_mutex in the shared memory
+    auto mutex = extBuffer.find_or_construct<boost::interprocess::interprocess_mutex>("MyMutex")();
+
+    // Lock the mutex
+    mutex->lock();
+
+    // Create or find a string in the shared memory
+    auto sharedString = extBuffer.find_or_construct<boost::interprocess::basic_string<char>>("MyString")();
+
+    // Write the message into the shared string
+    sharedString->assign(message);
+
+    // Unlock the mutex
+    mutex->unlock();
+
+    std::cout << "String '" << message << "' written to shared memory." << std::endl;
+
+    // Detach from the shared memory segment
+    shmdt(segmentAddress);
+}
+
+void ReadStringFromSharedMemory() {
+    // Open the shared memory segment using POSIX
+    key_t key = ftok("/tmp", 'R'); // Replace "/tmp" with the same path used for writing
+    int shmId = shmget(key, 65536, 0666);
+
+    if (shmId == -1) {
+        perror("shmget");
+        return;
+    }
+
+    // Attach to the shared memory segment
+    void* segmentAddress = shmat(shmId, nullptr, 0);
+
+    if (segmentAddress == (void*)-1) {
+        perror("shmat");
+        return;
+    }
+
+    // Create a managed_external_buffer and map the shared memory into it
+    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, segmentAddress, 65536);
+
+    // Find the mutex in the shared memory
+    auto mutex = extBuffer.find<boost::interprocess::interprocess_mutex>("MyMutex").first;
+
+    if (!mutex) {
+        std::cerr << "Mutex not found in shared memory." << std::endl;
+        return;
+    }
+
+    // Lock the mutex
+    mutex->lock();
+
+    // Find the shared string in the shared memory
+    auto sharedString = extBuffer.find<boost::interprocess::basic_string<char>>("MyString").first;
+
+    if (!sharedString) {
+        std::cerr << "String not found in shared memory." << std::endl;
+        mutex->unlock(); // Ensure the mutex is unlocked before returning
+        return;
+    }
+
+    // Print the string from shared memory
+    std::cout << "String read from shared memory: " << *sharedString << std::endl;
+
+    // Unlock the mutex
+    mutex->unlock();
+
+    // Detach from the shared memory segment
+    shmdt(segmentAddress);
+}
+
+int main(int argc, char* argv[]) {
+    if (argc != 2) {
+        std::cerr << "Usage: " << argv[0] << " <write|read>" << std::endl;
+        return 1;
+    }
+
+    std::string option(argv[1]);
+
+    if (option == "write") {
+        // Write a string into shared memory
+        WriteStringToSharedMemory("Hello, Shared Memory!");
+    } else if (option == "read") {
+        // Read and print the string from shared memory
+        ReadStringFromSharedMemory();
+    } else {
+        std::cerr << "Invalid option. Use 'write' or 'read'." << std::endl;
+        return 1;
+    }
+
+    return 0;
+}
+
+/*
 #include <boost/interprocess/xsi_shared_memory.hpp>
 #include <boost/interprocess/managed_external_buffer.hpp>
 //#include <boost/interprocess/managed_shared_memory.hpp>
@@ -40,11 +168,9 @@ int main() {
 		boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, address, segmentSize);
 		boost::interprocess::interprocess_mutex* mutex = extBuffer.construct<boost::interprocess::interprocess_mutex>("MyMutex")();
 
-/*
-        boost::interprocess::managed_shared_memory segmentManager(boost::interprocess::create_only, "Test", segmentSize, segmentAddress, 0660);
-        boost::interprocess::interprocess_mutex* mutex =
-            segmentManager.construct<boost::interprocess::interprocess_mutex>("MyMutex")();
-*/
+//        boost::interprocess::managed_shared_memory segmentManager(boost::interprocess::create_only, "Test", segmentSize, segmentAddress, 0660);
+//        boost::interprocess::interprocess_mutex* mutex =
+//            segmentManager.construct<boost::interprocess::interprocess_mutex>("MyMutex")();
 
     } catch (const boost::interprocess::interprocess_exception& e) {
         // Handle exceptions as needed
@@ -53,6 +179,7 @@ int main() {
 
     return 0;
 }
+*/
 
 /*
 #include <iostream>
