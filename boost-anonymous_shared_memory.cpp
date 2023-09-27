@@ -31,20 +31,11 @@ void WriteStringToSharedMemory(const char* message) {
     // Create a managed_external_buffer and map the shared memory into it
     boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, segmentAddress, 65536);
 
-    // Create an interprocess_mutex in the shared memory
-    auto mutex = extBuffer.find_or_construct<boost::interprocess::interprocess_mutex>("MyMutex")();
-
-    // Lock the mutex
-    mutex->lock();
-
     // Create or find a string in the shared memory
     auto sharedString = extBuffer.find_or_construct<boost::interprocess::basic_string<char>>("MyString")();
 
     // Write the message into the shared string
     sharedString->assign(message);
-
-    // Unlock the mutex
-    mutex->unlock();
 
     std::cout << "String '" << message << "' written to shared memory." << std::endl;
 
@@ -71,33 +62,19 @@ void ReadStringFromSharedMemory() {
     }
 
     // Create a managed_external_buffer and map the shared memory into it
-    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, segmentAddress, 65536);
+    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::open_only, segmentAddress, 65536);
 
-    // Find the mutex in the shared memory
-    auto mutex = extBuffer.find<boost::interprocess::interprocess_mutex>("MyMutex").first;
-
-    if (!mutex) {
-        std::cerr << "Mutex not found in shared memory." << std::endl;
-        return;
-    }
-
-    // Lock the mutex
-    mutex->lock();
 
     // Find the shared string in the shared memory
     auto sharedString = extBuffer.find<boost::interprocess::basic_string<char>>("MyString").first;
 
     if (!sharedString) {
         std::cerr << "String not found in shared memory." << std::endl;
-        mutex->unlock(); // Ensure the mutex is unlocked before returning
         return;
     }
 
     // Print the string from shared memory
     std::cout << "String read from shared memory: " << *sharedString << std::endl;
-
-    // Unlock the mutex
-    mutex->unlock();
 
     // Detach from the shared memory segment
     shmdt(segmentAddress);
