@@ -9,31 +9,19 @@
 
 void WriteStringToSharedMemory(const char* message) {
 	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create, {"/tmp/", 1}, 10000);
+    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::open_only, (void*)(xsm.get_mapping_handle().handle), 10000);
 
-    void* segmentAddress = shmat(xsm.get_shmid(), NULL, 0);
-    if (segmentAddress == (void*)-1) {
-        perror("shmat");
-        return;
-    }
-
-    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, segmentAddress, 65536);
     auto sharedString = extBuffer.find_or_construct<boost::interprocess::basic_string<char>>("MyString")();
     sharedString->assign(message);
     std::cout << "String '" << message << "' written to shared memory." << std::endl;
 
-    shmdt(segmentAddress);
+    shmdt(reinterpret_cast<void*>(xsm.get_mapping_handle().handle));
 }
 
 void ReadStringFromSharedMemory() {
 	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_only, {"/tmp/", 1});
+    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::open_only, reinterpret_cast<void*>(xsm.get_mapping_handle().handle), 10000);
 
-    void* segmentAddress = shmat(xsm.get_shmid(), NULL, 0);
-    if (segmentAddress == (void*)-1) {
-        perror("shmat");
-        return;
-    }
-
-    boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::open_only, segmentAddress, 10000);
     auto sharedString = extBuffer.find<boost::interprocess::basic_string<char>>("MyString").first;
     if (!sharedString) {
         std::cerr << "String not found in shared memory." << std::endl;
@@ -41,7 +29,7 @@ void ReadStringFromSharedMemory() {
     }
     std::cout << "String read from shared memory: " << *sharedString << std::endl;
 
-    shmdt(segmentAddress);
+    shmdt(reinterpret_cast<void*>(xsm.get_mapping_handle().handle));
 }
 
 int main(int argc, char* argv[]) {
