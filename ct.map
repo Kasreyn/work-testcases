@@ -1,0 +1,1 @@
+CTL_1.0 { global: _ZN6Person5SetupEv; local: *; };
