@@ -3,25 +3,23 @@
 class A {
 	public:
 		std::string m_Name = "A";
-	public:
-		void Print() {
-			std::cout << "Print(): " << m_Name << std::endl;
-		}
 };
 
-A& Test() {
+A& GetA() {
 	A a;
 	return a;
 }
 
 int main(int argc, char *argv[]) {
 	{
-		A& a = Test();
-		std::cout << a.m_Name << std::endl;
+		A a;
 	}
-	A& a2 = a;
+//	A& a_ref = a;
 
-	A* b = NULL;
+	A& a_ref_local = GetA();
+
+	A a;
+	A* b = nullptr;
 	A& b2 = *b;
 	std::cout << b2.m_Name << std::endl;
 }
