@@ -25,5 +25,21 @@
 // EXTRACTED_ENUM((MY_SEQUENCE))
 
 // WRAPPED_SEQUENCE
-BOOST_PP_VARIADIC_TO_SEQ(WRAP_ELEM MY_SEQUENCE)
+// BOOST_PP_VARIADIC_TO_SEQ(WRAP_ELEM MY_SEQUENCE)
+
+#define CTL_DECL_TRANSFORMATION_SPACES(ENUM_ONLY, ...) using SpaceVariant = std::variant<BOOST_PP_SEQ_ENUM(EXTRACTED_ENUM(BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)))>;
+
+CTL_DECL_TRANSFORMATION_SPACES(
+	ANONYMOUS_SPACE,
+	(SENSOR, Coordinate::Cartesian2D),
+	(EXPOSURE, Coordinate::Cartesian2D),
+	(VIP1_VCA, Coordinate::Cartesian2D),
+	(MASK, Coordinate::Cartesian2D),
+	(YUV, Coordinate::Cartesian2D),
+	(DEST_OVERLAY, Coordinate::Cartesian2D),
+	(ENCODED, Coordinate::Cartesian2D),
+	(EXT_DEVICE_SPHERE, Coordinate::Cartesian3D),
+	(EXT_DEVICE_3D, Coordinate::Cartesian3D),
+	(EXT_GEOGRAPHIC, Coordinate::Geographic)
+)
 
