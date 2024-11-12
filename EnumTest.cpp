@@ -106,47 +106,13 @@ namespace Space {
 	using SpaceVariant = std::variant<Space::SENSOR, Space::EXPOSURE, Space::VIP1_VCA, Space::MASK, Space::YUV, Space::DEST_OVERLAY, Space::ENCODED, Space::EXT_DEVICE_SPHERE, Space::EXT_DEVICE_3D, Space::EXT_GEOGRAPHIC >;
 }
 
-//#define MY_SEQUENCE (SENSOR, Coordinate::Cartesian2D), (EXPOSURE, Coordinate::Cartesian2D), (VIP1_VCA, Coordinate::Cartesian2D), (MASK, Coordinate::Cartesian2D), (YUV, Coordinate::Cartesian2D), (DEST_OVERLAY, Coordinate::Cartesian2D), (ENCODED, Coordinate::Cartesian2D), (EXT_DEVICE_SPHERE, Coordinate::Cartesian3D), (EXT_DEVICE_3D, Coordinate::Cartesian3D), (EXT_GEOGRAPHIC, Coordinate::Geographic)
-
-// Helper macro to extract the first element of each tuple
-#define FIRST_ELEM(s, data, elem) BOOST_PP_CAT(Core::, BOOST_PP_TUPLE_ELEM(2, 0, elem))
-
-// Macro to create an enum from a sequence of pairs
-#define EXTRACTED_ENUM(seq) BOOST_PP_SEQ_TRANSFORM(FIRST_ELEM, _, seq)
-
-// Example usage with an inline sequence
-#define MY_ENUM(seq) enum MyEnum { BOOST_PP_SEQ_ENUM(EXTRACTED_ENUM(seq)) }
-
-#define WRAPPED_SEQUENCE BOOST_PP_VARIADIC_TO_SEQ(WRAP_ELEM MY_SEQUENCE)
-
-#define GET_ENUM_NAME(s, data, elem) BOOST_PP_TUPLE_ELEM(2, 0, elem)
-
-//#define MAP_LINE(s, data, elem) map[Core::EnumTransformationSpace::GET_ENUM_NAME(elem)] = Space::GET_ENUM_NAME(elem);
-//#define MAP_LINE(r, data, elem) #elem;
-//#define MAP_LINE(s, data, elem) BOOST_PP_CAT(map[Core::EnumTransformationSpace::, elem) BOOST_PP_CAT(] = Space::, elem);
-//#define MAP_LINE(r, data, elem) elem;
-//#define MAP_INNER(elem) map[BOOST_PP_STRINGIZE(Core::EnumTransformationSpace::elem)] = Space::elem;
-#define TEST1(elem) Core::EnumTransformationSpace::elem
-#define TEST2(elem) Space::elem
-#define TEST2_1 Core::EnumTransformationSpace::
-//#define TEST3(elem) map[BOOST_PP_CAT(TEST2_1, elem)] = TEST2(elem)
-#define TEST3(elem) map[elem] = TEST2(elem)
-//#define MAP_LINE(s, data, elem) map[Core::EnumTransformationSpace::elem] = Space::elem;
-#define MAP_LINE(s, data, elem) TEST3(BOOST_PP_CAT(TEST2_1, elem))
-//#define MAP_LINE(s, data, elem) BOOST_PP_CAT( , elem);
-//#define MAP_LINE(s, data, elem) MAP_INNER(elem);
-
-#define GENERATE_MAP_LINES(seq) BOOST_PP_SEQ_FOR_EACH(MAP_LINE, _, seq)
-
-// Define your sequence
 #define MY_SEQUENCE ((SENSOR, Coordinate::Cartesian2D))((EXPOSURE, Coordinate::Cartesian2D))
 #define MY_SEQUENCE2 (SENSOR, Coordinate::Cartesian2D)(EXPOSURE, Coordinate::Cartesian2D)
-// #define MY_SEQUENCE (SENSOR)(EXPOSURE)
+#define CTL_FIRST_ELEM(s, data, elem) BOOST_PP_TUPLE_ELEM(2, 0, elem)
 
-#define EXTRACT_FIRST_ELEMENTS(seq) BOOST_PP_SEQ_TRANSFORM(GET_ENUM_NAME, _, seq)
+#define MAP_LINE(s, data, elem) map[Core::EnumTransformationSpace::BOOST_PP_TUPLE_ELEM(2, 0, elem)] = Space::BOOST_PP_TUPLE_ELEM(2, 0, elem){};
 
-// BOOST_PP_VARIADIC_TO_SEQ(WRAP_ELEM __VA_ARGS__)
-// #define CTL_DECL_TRANSFORMATION_SPACES(ENUM_ONLY, ...) using SpaceVariant = std::variant<BOOST_PP_SEQ_ENUM(EXTRACTED_ENUM(BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)))>;
+#define GENERATE_MAP_LINES(seq) BOOST_PP_SEQ_FOR_EACH(MAP_LINE, _, seq)
 
 #define CTL_DECL_TRANSFORMATION_SPACES(ENUM_ONLY_SPACE, ...)                   \
   void createMap() {                                                           \
@@ -157,7 +123,7 @@ namespace Space {
           std::unordered_map<Core::EnumTransformationSpace,                    \
                              Space::SpaceVariant>                              \
               map;                                                             \
-          GENERATE_MAP_LINES(EXTRACT_FIRST_ELEMENTS(BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)))   \
+          GENERATE_MAP_LINES(BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))   \
           return map;                                                          \
         }();                                                                   \
   }
@@ -178,10 +144,8 @@ CTL_DECL_TRANSFORMATION_SPACES(
 )
 }
 
-/*
 int main(int argc, char* argv[]) {
-	createMap();
+	Space::createMap();
 
 	return 0;
 }
-*/
