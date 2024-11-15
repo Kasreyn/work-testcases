@@ -1,0 +1,14 @@
+CompileFlags:
+  Add:
+  - -I/home/jonasje/stash/builds/cvp-coordspace-10/builds/m4318/workspace/sources/libcoordspaced-common
+  - -xc++
+  - -Wall
+  - -std=c++20
+  - --analyze
+  Compiler: clang++
+Diagnostics:
+  ClangTidy:
+    Remove:
+    - readability-redundant-access-specifiers
+  UnusedIncludes: Strict
+  MissingIncludes: Strict
