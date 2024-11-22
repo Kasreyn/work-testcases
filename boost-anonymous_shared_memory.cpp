@@ -1,21 +1,32 @@
+#include <boost/interprocess/creation_tags.hpp>
+#include <boost/interprocess/detail/os_file_functions.hpp>
+#include <boost/interprocess/interprocess_fwd.hpp>
+#include <boost/interprocess/xsi_key.hpp>
 #include <iostream>
 #include <boost/interprocess/containers/string.hpp>
 #include <boost/interprocess/xsi_shared_memory.hpp>
 #include <boost/interprocess/mapped_region.hpp>
 #include <boost/interprocess/managed_external_buffer.hpp>
+#include <string>
+#include <sys/types.h>
 
-void WriteStringToSharedMemory(const char* message) {
-	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create, {"/tmp/", 2}, 10000, 0640);
+// To include boost headers into tags, run: ctags -R . /usr/include/*
+
+int WriteStringToSharedMemory(const std::string& message) {
+/*	key_t sysvkey = 0;
+	boost::interprocess::xsi_key key(sysvkey);*/
+	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create, boost::interprocess::xsi_key{key_t(0)}, 10000, 0640);
 	boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_write);
     boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::create_only, mr.get_address(), mr.get_size());
 
     auto sharedString = extBuffer.find_or_construct<boost::interprocess::basic_string<char>>("MyString")();
-    sharedString->assign(message);
+    sharedString->assign(message.c_str());
     std::cout << "String '" << message << "' written to shared memory (key " << xsm.get_shmid() << ")." << std::endl;
+	return xsm.get_shmid();
 }
 
-void ReadStringFromSharedMemory() {
-	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create, {"/tmp/", 2}, 10000, 0440);
+void ReadStringFromSharedMemory(int key) {
+	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_only, key);
 	boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_only);
     boost::interprocess::managed_external_buffer extBuffer(boost::interprocess::open_only, mr.get_address(), mr.get_size());
 
@@ -30,15 +41,15 @@ void ReadStringFromSharedMemory() {
 
 int main(int argc, char* argv[]) {
     if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <write|read>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <write>" << std::endl;
         return 1;
     }
 
     std::string option(argv[1]);
     if (option == "write") {
-        WriteStringToSharedMemory("Hello, Shared Memory!");
-    } else if (option == "read") {
-        ReadStringFromSharedMemory();
+		int key = WriteStringToSharedMemory("Hello, Shared Memory!");
+        ReadStringFromSharedMemory(key);
+		boost::interprocess::xsi_shared_memory::remove(key);
     } else {
         std::cerr << "Invalid option. Use 'write' or 'read'." << std::endl;
         return 1;

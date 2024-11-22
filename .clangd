@@ -1,6 +1,7 @@
 CompileFlags:
   Add:
   - -I/home/jonasje/stash/builds/cvp-coordspace-10/builds/m4318/workspace/sources/libcoordspaced-common
+  - -isystem/usr
   - -xc++
   - -Wall
   - -std=c++20
