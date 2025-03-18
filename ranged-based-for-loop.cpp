@@ -1,9 +1,12 @@
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 #include <sstream>
+#include <ranges>
 
 struct FloatTest {
 	float m_Float;
@@ -12,6 +15,8 @@ struct FloatTest {
 	FloatTest(float value) : m_Float(value) {
 	}
 */
+
+	auto operator<=>(const FloatTest&) const = default;
 
 	std::string ToString() const {
 		std::stringstream ss;
@@ -53,6 +58,42 @@ int main() {
 		}
 	);
 */
+
+    std::vector<int> myVector = {1, 2, 3, 4, 5};
+
+/*
+	int size = myVector.size();
+    for (const auto [index, element] : std::views::iota(0, size) | std::views::transform([&myVector](int i) {
+        return std::pair<int, int>(i, myVector[i]);
+    })) {
+        std::cout << "Element at index " << index << ": " << element << std::endl;
+    }
+*/
+
+	auto makePairs = [&coordAlternatives](int i) {
+		return std::pair<int, FloatTest>(i, coordAlternatives[i]);
+	};
+
+/*
+    for (const auto [index, element] : std::views::iota(0, coordAlternatives.size()) | std::views::transform([&coordAlternatives](int i) {
+        return std::pair<int, FloatTest>(i, coordAlternatives[i]);
+    })) {
+        std::cout << "Element at index " << index << ": " << element << std::endl;
+    }
+
+	int size = coordAlternatives.size();
+    for (const auto [index, element] : std::views::iota(0, size) | std::views::transform(makePairs)) {
+        std::cout << "Element at index " << index << ": " << element << std::endl;
+    }
+*/
+
+	const std::vector<FloatTest>& vft = coordAlternatives;
+	for (const auto& element : vft) {
+		const auto it = std::find(vft.begin(), vft.end(), element);
+		int index = std::distance(vft.begin(), it);
+//		const auto it = std::find(coordAlternatives.begin(), coordAlternatives.end(), element);
+        std::cout << "Element at index " << index << ": " << element << std::endl;
+	}
 
 	int index = 0;
     std::for_each(coordAlternatives.begin(), coordAlternatives.end(), 
