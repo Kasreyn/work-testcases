@@ -9,6 +9,8 @@ CompileFlags:
   Compiler: clang++
 Diagnostics:
   ClangTidy:
+    Add:
+    - modernize-use-default-member-init
     Remove:
     - readability-redundant-access-specifiers
   UnusedIncludes: Strict
