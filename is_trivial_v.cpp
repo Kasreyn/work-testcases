@@ -1,6 +1,7 @@
 #include <ostream>
 #include <type_traits>
 #include <iostream>
+#include <array>
 
 struct InnerConstMemberFunction {
 	const int x;
@@ -21,7 +22,8 @@ struct Outer1 {
 };
 
 struct Outer2 {
-    InnerCtor inner;
+//    InnerCtor inner;
+	std::array<int, 10> MyArray{};
 };
 
 struct Outer3 : Inner {
