@@ -1,35 +1,41 @@
-
 #include <cstdint>
 #include <iostream>
-#include <limits>
+#include <source_location>
+#include <string_view>
 
-enum class Test {
-	TEST0,
-	TEST1,
-	TEST2,
-	TEST3
-};
+namespace Some::Name {
 
-void ToString(Test v) {
-	switch (v) {
-		case Test::TEST1:
-			std::cout << "TEST1" << std::endl;
-			break;
-		case Test::TEST2:
-			std::cout << "TEST2" << std::endl;
-			break;
+	void log(const std::string_view message,
+			 const std::source_location location =
+				   std::source_location::current())
+	{
+		std::clog << "file: "
+				  << location.file_name() << '('
+				  << location.line() << ':'
+				  << location.column() << ") `"
+				  << location.function_name() << "`: "
+				  << message << '\n';
+	}
+ 
+
+	void hi() {
+		log("Hello!");
 	}
 }
 
 int main() {
-	static constexpr auto MAX_PLUGINS = std::numeric_limits<uint8_t>::max() + 1;
+	int16_t i16 = -2;
+	uint32_t u32 = (static_cast<uint32_t>(i16) & ((1u << 18) - 1));
+	std::cout << "test: " << u32 << std::endl;
+	uint32_t n = 2;
+	uint32_t d = 3;
+//	double f = static_cast<double>(d) / n;
+	double f = d / n;
+	std::cout << "test 2: " << f << std::endl;
 
-	std::cout << "numeric_limits<uint8_t>::max() = " << (int)std::numeric_limits<uint8_t>::max() << std::endl;
-	std::cout << "numeric_limits<int8_t>::max() = " << (int)std::numeric_limits<int8_t>::max() << std::endl;
-	std::cout << "numeric_limits<int8_t>::min() = " << (int)std::numeric_limits<int8_t>::min() << std::endl;
-	std::cout << "MAX_PLUGINS = " << (int)MAX_PLUGINS << std::endl;
-	std::cout << +static_cast<uint8_t>(257) << std::endl;
+	int width = 0;
 
-	Test t = Test::TEST3;
-	ToString(t);
+	d = width;
+
+	Some::Name::hi();
 }
