@@ -1,13 +1,19 @@
+#include <boost/asio.hpp>
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/impl/read.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
 #include <boost/interprocess/creation_tags.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/offset_ptr.hpp>
 #include <boost/interprocess/sync/interprocess_upgradable_mutex.hpp>
-#include <cstring>
+#include <chrono>
+#include <cstdint>
+#include <exception>
 #include <iostream>
 #include <string>
-#include <sys/socket.h>
-#include <sys/un.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -15,52 +21,56 @@
 
 namespace bip = boost::interprocess;
 
-const char *SOCKET_PATH = "/tmp/server_socket";
-
 int main() {
-    unlink(SOCKET_PATH);
-    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
-    sockaddr_un addr{};
-    addr.sun_family = AF_UNIX;
-    strcpy(addr.sun_path, SOCKET_PATH);
-    bind(sock, (sockaddr*)&addr, sizeof(addr));
-    listen(sock, 5);
+	try {
+		boost::asio::io_context io;
+		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), 12345);
+		boost::asio::ip::tcp::acceptor acceptor(io, endpoint);
+		boost::asio::ip::tcp::socket socket(io);
+		std::vector<std::string> clientShmNames;
 
-    std::vector<std::string> client_shms;
+		for (int i = 0; i < 2; i++) {
+			acceptor.accept(socket);
 
-    for (int i = 0; i < 2; i++) {
-        int client_fd = accept(sock, nullptr, nullptr);
-        char buf[128];
-        read(client_fd, buf, sizeof(buf));
-        client_shms.emplace_back(buf);
-        std::cout << "Server: got client shm name " << buf << std::endl;
-        close(client_fd);
-    }
+			uint32_t msg_size = 0;
+			boost::asio::read(socket, boost::asio::buffer(&msg_size, sizeof(msg_size)));
+	
+			std::vector<char> buf(msg_size);
+			boost::asio::read(socket, boost::asio::buffer(buf.data(), buf.size()));
 
-	std::vector<bip::managed_shared_memory> regions;
-    std::vector<bip::offset_ptr<ClientSync>> syncs;
-    for (auto &name : client_shms) {
-		bip::managed_shared_memory& region = regions.emplace_back(bip::open_only, name.c_str());
-        syncs.push_back(region.find<ClientSync>("sync").first);
-    }
+			std::string& shmName = clientShmNames.emplace_back(buf.begin(), buf.end());
+			std::cout << "Server: A client has sent us its shared memory name: " << shmName << std::endl;
 
-	while (true) {
-		std::cout << "Server: taking exclusive lock to update shared buffer..." << std::endl;
-
-		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
-		for (bip::offset_ptr<ClientSync> sync : syncs) {
-			locks.emplace_back(sync->mutex);
-			std::cout << "Locked client's mutex in /dev/shm/" << sync->shmName << std::endl;
+			socket.close();
 		}
 
-		std::cout << "Server: Doing work (simulated)." << std::endl;
-		sleep(5);
+		std::vector<bip::managed_shared_memory> regions;
+		std::vector<bip::offset_ptr<ClientSync>> syncObjects;
+		for (std::string& s : clientShmNames) {
+			bip::managed_shared_memory& region = regions.emplace_back(bip::open_only, s.c_str());
+			syncObjects.push_back(region.find<ClientSync>("sync").first);
+		}
 
-		std::cout << "Server: Work complete (simulate server doing other things)." << std::endl;
-		locks.clear();
-		sleep(5);
+		while (true) {
+			std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
+
+			std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
+			for (bip::offset_ptr<ClientSync> s : syncObjects) {
+				locks.emplace_back(s->mutex);
+				std::cout << s->shmName << " ";
+			}
+			std::cout << std::endl;
+
+			std::cout << "Server: Doing work" << std::endl;
+			std::this_thread::sleep_for(std::chrono::seconds(5));
+
+			std::cout << "Server: Releasing all client locks" << std::endl;
+			locks.clear();
+
+			std::cout << "Server: Idle" << std::endl;
+			std::this_thread::sleep_for(std::chrono::seconds(5));
+		}
+	} catch (std::exception &e) {
+		std::cerr << "Server error: " << e.what() << std::endl;
 	}
-
-    close(sock);
-    unlink(SOCKET_PATH);
 }
