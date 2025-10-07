@@ -59,7 +59,11 @@ int main() {
 		std::string srvShm = std::string(buf.begin(), buf.end());
 		std::cout << "Client: The server has sent us its shared memory name: " << srvShm << std::endl;
 
-		bip::managed_shared_memory region(bip::open_only, srvShm.c_str());
+		unsigned int uid;
+		boost::asio::read(socket, boost::asio::buffer(&uid, 4));
+		std::cout << "Client: The server has sent us its UID: " << uid << std::endl;
+
+		bip::managed_shared_memory region(bip::open_read_only, srvShm.c_str());
 		std::pair<unsigned char*, std::size_t> p = region.find<unsigned char>("server buffer");
 		unsigned char* data						 = p.first;
 

@@ -20,6 +20,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <unistd.h>
 
 #include "Fine-Grained-Locking-Common.hpp"
 
@@ -70,6 +71,9 @@ int main() {
 			unsigned int size = shm_name.size();
 			boost::asio::write(socket, boost::asio::buffer(&size, 4));
 			boost::asio::write(socket, boost::asio::buffer(shm_name.data(), shm_name.size()));
+
+			unsigned int uid = getuid();
+			boost::asio::write(socket, boost::asio::buffer(&uid, 4));
 
 			socket.close();
 		}
