@@ -5,10 +5,14 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/interprocess/creation_tags.hpp>
+#include <boost/interprocess/detail/os_file_functions.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
+#include <boost/interprocess/managed_external_buffer.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/offset_ptr.hpp>
 #include <boost/interprocess/sync/interprocess_upgradable_mutex.hpp>
+#include <boost/interprocess/xsi_key.hpp>
+#include <boost/interprocess/xsi_shared_memory.hpp>
 #include <boost/io/ios_state.hpp>
 #include <chrono>
 #include <cstddef>
@@ -18,9 +22,10 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <sys/types.h>
 #include <thread>
-#include <vector>
 #include <unistd.h>
+#include <vector>
 
 #include "Fine-Grained-Locking-Common.hpp"
 
@@ -50,11 +55,16 @@ int main() {
 		std::stringstream ss;
 		ss << "server_buffer_" << std::this_thread::get_id();
 		std::string shm_name = ss.str();
-		bip::shared_memory_object::remove(shm_name.c_str());
-		bip::managed_shared_memory shm(bip::create_only, shm_name.c_str(), 4096);
-		std::cout << "Shared memory address: " << shm.get_address() << ", size: " << shm.get_size()
+
+		boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create,
+												   boost::interprocess::xsi_key{key_t(0)}, 4096, 0640);
+		boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_write);
+		boost::interprocess::managed_external_buffer meb(boost::interprocess::create_only, mr.get_address(),
+														 mr.get_size());
+
+		std::cout << "Shared memory address: " << meb.get_address() << ", size: " << meb.get_size()
 				  << std::endl;
-		unsigned char* data = shm.construct<unsigned char>("server buffer")[10](0x55);
+		unsigned char* data = meb.construct<unsigned char>("server buffer")[10](0x55);
 
 		for (int i = 0; i < 2; i++) {
 			acceptor.accept(socket);
@@ -68,11 +78,10 @@ int main() {
 			std::string& shmName = clientShmNames.emplace_back(buf.begin(), buf.end());
 			std::cout << "Server: A client has sent us its shared memory name: " << shmName << std::endl;
 
-			unsigned int size = shm_name.size();
-			boost::asio::write(socket, boost::asio::buffer(&size, 4));
-			boost::asio::write(socket, boost::asio::buffer(shm_name.data(), shm_name.size()));
+			unsigned int shmid = xsm.get_shmid();
+			unsigned int uid   = getuid();
 
-			unsigned int uid = getuid();
+			boost::asio::write(socket, boost::asio::buffer(&shmid, 4));
 			boost::asio::write(socket, boost::asio::buffer(&uid, 4));
 
 			socket.close();

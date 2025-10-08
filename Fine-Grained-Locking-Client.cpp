@@ -6,9 +6,13 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/interprocess/creation_tags.hpp>
+#include <boost/interprocess/detail/os_file_functions.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
+#include <boost/interprocess/managed_external_buffer.hpp>
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/sync/interprocess_upgradable_mutex.hpp>
+#include <boost/interprocess/xsi_key.hpp>
+#include <boost/interprocess/xsi_shared_memory.hpp>
 #include <boost/io/ios_state.hpp>
 #include <chrono>
 #include <cstring>
@@ -53,18 +57,19 @@ int main() {
 		boost::asio::write(socket, boost::asio::buffer(&size, 4));
 		boost::asio::write(socket, boost::asio::buffer(shm_name.data(), shm_name.size()));
 
-		boost::asio::read(socket, boost::asio::buffer(&size, sizeof(size)));
-		std::vector<char> buf(size);
-		boost::asio::read(socket, boost::asio::buffer(buf.data(), buf.size()));
-		std::string srvShm = std::string(buf.begin(), buf.end());
-		std::cout << "Client: The server has sent us its shared memory name: " << srvShm << std::endl;
+		unsigned int shmid;
+		boost::asio::read(socket, boost::asio::buffer(&shmid, sizeof(shmid)));
+		std::cout << "Client: The server has sent us its shared memory ID: " << shmid << std::endl;
 
 		unsigned int uid;
 		boost::asio::read(socket, boost::asio::buffer(&uid, 4));
 		std::cout << "Client: The server has sent us its UID: " << uid << std::endl;
 
-		bip::managed_shared_memory region(bip::open_read_only, srvShm.c_str());
-		std::pair<unsigned char*, std::size_t> p = region.find<unsigned char>("server buffer");
+		boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_only, shmid);
+		boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_only);
+		boost::interprocess::managed_external_buffer meb(boost::interprocess::open_only, mr.get_address(),
+														 mr.get_size());
+		std::pair<unsigned char*, std::size_t> p = meb.find<unsigned char>("server buffer");
 		unsigned char* data						 = p.first;
 
 		while (true) {
