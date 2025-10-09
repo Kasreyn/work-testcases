@@ -8,10 +8,8 @@
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/interprocess/creation_tags.hpp>
-#include <boost/interprocess/detail/os_file_functions.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/managed_external_buffer.hpp>
-#include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/offset_ptr.hpp>
 #include <boost/interprocess/sync/interprocess_upgradable_mutex.hpp>
 #include <boost/interprocess/xsi_key.hpp>
@@ -27,9 +25,10 @@
 #include <iostream>
 #include <list>
 #include <signal.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 #include <sys/types.h>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
 #include "Fine-Grained-Locking-Common.hpp"
@@ -52,7 +51,7 @@ int main() {
 	boost::asio::steady_timer timer(io);
 	std::list<ClientXSI> clientXSIs;
 
-	bip::xsi_shared_memory xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0640);
+	bip::xsi_shared_memory xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0644);
 	bip::mapped_region mr(xsm, bip::read_write);
 	bip::managed_external_buffer meb(bip::create_only, mr.get_address(), mr.get_size());
 	unsigned char* data = meb.construct<unsigned char>("server buffer")[10](0x55);
@@ -108,12 +107,23 @@ int main() {
 
 			ClientXSI& cXSI		   = clientXSIs.emplace_back();
 			unsigned int shmid_buf = xsm.get_shmid();
-			unsigned int uid	   = getuid();
+			unsigned int uid;
 			unsigned int shmid_cli = cXSI.GetKey();
 
 			boost::asio::write(socket, boost::asio::buffer(&shmid_buf, 4));
-			boost::asio::write(socket, boost::asio::buffer(&uid, 4));
+			std::cout << "Server: Sending shared memory buffer ID: " << shmid_buf << std::endl;
+			boost::asio::read(socket, boost::asio::buffer(&uid, 4));
+			std::cout << "Server: The client has sent us a UID: " << uid << std::endl;
+
+			struct shmid_ds buf;
+			shmctl(shmid_cli, IPC_STAT, &buf);
+			buf.shm_perm.uid  = uid;
+			buf.shm_perm.gid  = uid;
+			buf.shm_perm.mode = 0600;
+			shmctl(shmid_cli, IPC_SET, &buf);
+
 			boost::asio::write(socket, boost::asio::buffer(&shmid_cli, 4));
+			std::cout << "Server: Sending shared memory client ID: " << shmid_cli << std::endl;
 
 			socket.close();
 		}

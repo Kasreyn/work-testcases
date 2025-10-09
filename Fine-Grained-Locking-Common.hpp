@@ -22,12 +22,13 @@ class ClientXSI {
 	bip::xsi_shared_memory xsm;
 	bip::mapped_region mr;
 	bip::managed_external_buffer meb;
+
   public:
 	ClientSync* client_sync;
 
   public:
 	ClientXSI()
-		: xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0640), mr(xsm, bip::read_write),
+		: xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0600), mr(xsm, bip::read_write),
 		  meb(bip::create_only, mr.get_address(), mr.get_size()) {
 		client_sync = meb.construct<ClientSync>("sync")();
 	}
