@@ -65,12 +65,24 @@ int main() {
 		boost::asio::read(socket, boost::asio::buffer(&uid, 4));
 		std::cout << "Client: The server has sent us its UID: " << uid << std::endl;
 
+		unsigned int shmid2;
+		boost::asio::read(socket, boost::asio::buffer(&shmid2, sizeof(shmid2)));
+		std::cout << "Client: The server has sent us its shared memory ID2: " << shmid2 << std::endl;
+
 		boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_only, shmid);
 		boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_only);
 		boost::interprocess::managed_external_buffer meb(boost::interprocess::open_only, mr.get_address(),
 														 mr.get_size());
 		std::pair<unsigned char*, std::size_t> p = meb.find<unsigned char>("server buffer");
 		unsigned char* data						 = p.first;
+
+		boost::interprocess::xsi_shared_memory xsm2(boost::interprocess::open_only, shmid2);
+		boost::interprocess::mapped_region mr2(xsm2, boost::interprocess::read_only);
+		boost::interprocess::managed_external_buffer meb2(boost::interprocess::open_only, mr2.get_address(),
+														 mr2.get_size());
+//		std::pair<ClientSync*, std::size_t> p2 = meb2.find<ClientSync>("sync");
+//		ClientSync* clientSync						 = p2.first;
+//		bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(clientSync->mutex);
 
 		while (true) {
 			{
