@@ -21,24 +21,23 @@
 #include <chrono>
 #include <csignal>
 #include <cstddef>
-#include <cstdint>
 #include <exception>
 #include <functional>
 #include <iomanip>
 #include <iostream>
+#include <list>
 #include <signal.h>
 #include <string>
 #include <sys/types.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
-#include <list>
 
 #include "Fine-Grained-Locking-Common.hpp"
 
 namespace bip = boost::interprocess;
 
-void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void ()> f) {
+void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void()> f) {
 	timer.expires_after(std::chrono::seconds(1));
 	timer.async_wait([&timer, f](const boost::system::error_code& ec) {
 		if (ec) {
@@ -52,19 +51,11 @@ void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void ()> f) {
 int main() {
 	boost::asio::io_context io;
 	boost::asio::steady_timer timer(io);
-	std::vector<std::string> clientShmNames;
-	std::vector<bip::managed_shared_memory> regions;
-	std::vector<bip::offset_ptr<ClientSync>> syncObjects;
 	std::list<ClientXSI> clientXSIs;
 
-	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create,
-											   boost::interprocess::xsi_key{key_t(0)}, 4096, 0640);
-	boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_write);
-	boost::interprocess::managed_external_buffer meb(boost::interprocess::create_only, mr.get_address(),
-													 mr.get_size());
-
-	std::cout << "Shared memory address: " << meb.get_address() << ", size: " << meb.get_size()
-			  << std::endl;
+	bip::xsi_shared_memory xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0640);
+	bip::mapped_region mr(xsm, bip::read_write);
+	bip::managed_external_buffer meb(bip::create_only, mr.get_address(), mr.get_size());
 	unsigned char* data = meb.construct<unsigned char>("server buffer")[10](0x55);
 
 	auto updateShmData = [data]() {
@@ -80,35 +71,24 @@ int main() {
 		std::cout << std::endl;
 	};
 
-	auto DoWork = [&syncObjects, &updateShmData]() {
-			std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
-			std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
-			for (bip::offset_ptr<ClientSync> s : syncObjects) {
-				locks.emplace_back(s->mutex);
-				std::cout << s->shmName << " ";
-			}
-			std::cout << std::endl;
-
-			std::cout << "Server: Doing work" << std::endl;
-			updateShmData();
-
-			std::cout << "Server: Releasing all client locks" << std::endl;
-			locks.clear();
-
-			std::cout << "Server: Idle" << std::endl;
-			std::this_thread::sleep_for(std::chrono::seconds(5));
-	};
-
-	boost::asio::signal_set stopSignals(io, SIGINT, SIGTERM, SIGHUP);
-	stopSignals.async_wait([&](const boost::system::error_code& error, int signalNumber) {
-		std::cout << "Got signal " << signalNumber << std::endl;
-
-		io.stop();
-
-		if (error.failed()) {
-			std::cout << "Error " << error.value() << std::endl;
+	auto DoWork = [&clientXSIs, &updateShmData]() {
+		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
+		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
+		for (ClientXSI& cXSI : clientXSIs) {
+			locks.emplace_back(cXSI.GetMutex());
+			std::cout << cXSI.GetKey() << " ";
 		}
-	});
+		std::cout << std::endl;
+
+		std::cout << "Server: Doing work" << std::endl;
+		updateShmData();
+
+		std::cout << "Server: Releasing all client locks" << std::endl;
+		locks.clear();
+
+		std::cout << "Server: Idle" << std::endl;
+		std::this_thread::sleep_for(std::chrono::seconds(5));
+	};
 
 	try {
 		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), 12345);
@@ -118,39 +98,32 @@ int main() {
 		for (int i = 0; i < 2; i++) {
 			acceptor.accept(socket);
 
-			uint32_t msg_size = 0;
-			boost::asio::read(socket, boost::asio::buffer(&msg_size, sizeof(msg_size)));
+			ClientXSI& cXSI		   = clientXSIs.emplace_back();
+			unsigned int shmid_buf = xsm.get_shmid();
+			unsigned int uid	   = getuid();
+			unsigned int shmid_cli = cXSI.GetKey();
 
-			std::vector<char> buf(msg_size);
-			boost::asio::read(socket, boost::asio::buffer(buf.data(), buf.size()));
-
-			std::string& shmName = clientShmNames.emplace_back(buf.begin(), buf.end());
-			std::cout << "Server: A client has sent us its shared memory name: " << shmName << std::endl;
-
-			unsigned int shmid = xsm.get_shmid();
-			unsigned int uid   = getuid();
-
-			boost::asio::write(socket, boost::asio::buffer(&shmid, 4));
+			boost::asio::write(socket, boost::asio::buffer(&shmid_buf, 4));
 			boost::asio::write(socket, boost::asio::buffer(&uid, 4));
-
-			ClientXSI& cXSI = clientXSIs.emplace_back();
-			unsigned int shmid2 = cXSI.GetKey();
-			boost::asio::write(socket, boost::asio::buffer(&shmid2, 4));
+			boost::asio::write(socket, boost::asio::buffer(&shmid_cli, 4));
 
 			socket.close();
 		}
-
-
-		for (std::string& s : clientShmNames) {
-			bip::managed_shared_memory& region = regions.emplace_back(bip::open_only, s.c_str());
-			syncObjects.push_back(region.find<ClientSync>("sync").first);
-		}
-
-		DoWorkTimer(timer, DoWork);
-
-		io.run();
 	}
 	catch (std::exception& e) {
 		std::cerr << "Server error: " << e.what() << std::endl;
 	}
+
+	boost::asio::signal_set stopSignals(io, SIGINT, SIGTERM, SIGHUP);
+	stopSignals.async_wait([&](const boost::system::error_code& error, int signalNumber) {
+		std::cout << "Got signal " << signalNumber << std::endl;
+		io.stop();
+		if (error.failed()) {
+			std::cout << "Error " << error.value() << std::endl;
+		}
+	});
+
+	DoWorkTimer(timer, DoWork);
+	io.run();
+	bip::xsi_shared_memory::remove(xsm.get_shmid());
 }

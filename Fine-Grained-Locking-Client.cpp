@@ -45,18 +45,6 @@ int main() {
 		boost::asio::ip::address address = boost::asio::ip::address::from_string("127.0.0.1");
 		socket.connect(boost::asio::ip::tcp::endpoint(address, 12345));
 
-		std::stringstream ss;
-		ss << "client_sync_" << std::this_thread::get_id();
-		std::string shm_name = ss.str();
-		bip::shared_memory_object::remove(shm_name.c_str());
-		bip::managed_shared_memory shm(bip::create_only, shm_name.c_str(), 4096);
-		ClientSync* cs = shm.construct<ClientSync>("sync")();
-		std::strncpy(cs->shmName, shm_name.c_str(), shm_name.size() + 1);
-
-		unsigned int size = shm_name.size();
-		boost::asio::write(socket, boost::asio::buffer(&size, 4));
-		boost::asio::write(socket, boost::asio::buffer(shm_name.data(), shm_name.size()));
-
 		unsigned int shmid;
 		boost::asio::read(socket, boost::asio::buffer(&shmid, sizeof(shmid)));
 		std::cout << "Client: The server has sent us its shared memory ID: " << shmid << std::endl;
@@ -86,7 +74,7 @@ int main() {
 
 		while (true) {
 			{
-				bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(cs->mutex);
+//				bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(cs->mutex);
 				std::cout << "Client " << std::this_thread::get_id() << " reading shared data..."
 						  << std::endl;
 				readShmData(data);

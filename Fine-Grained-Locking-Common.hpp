@@ -12,7 +12,6 @@
 
 namespace bip = boost::interprocess;
 
-// In each client's private shm
 struct ClientSync {
 	char shmName[100];
 	bip::interprocess_upgradable_mutex mutex;
@@ -20,22 +19,28 @@ struct ClientSync {
 
 class ClientXSI {
   private:
-	bip::xsi_shared_memory shm;
-	bip::mapped_region region;
-	bip::managed_external_buffer managed_buffer;
+	bip::xsi_shared_memory xsm;
+	bip::mapped_region mr;
+	bip::managed_external_buffer meb;
+  public:
+	ClientSync* client_sync;
 
   public:
 	ClientXSI()
-		: shm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0640), region(shm, bip::read_write),
-		  managed_buffer(bip::create_only, region.get_address(), region.get_size()) {
-		managed_buffer.construct<ClientSync>("sync")();
+		: xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0640), mr(xsm, bip::read_write),
+		  meb(bip::create_only, mr.get_address(), mr.get_size()) {
+		client_sync = meb.construct<ClientSync>("sync")();
 	}
 
 	~ClientXSI() {
-		bip::xsi_shared_memory::remove(shm.get_shmid());
+		bip::xsi_shared_memory::remove(xsm.get_shmid());
 	}
 
 	unsigned int GetKey() {
-		return shm.get_shmid();
+		return xsm.get_shmid();
+	}
+
+	bip::interprocess_upgradable_mutex& GetMutex() {
+		return client_sync->mutex;
 	}
 };
