@@ -27,7 +27,6 @@
 #include <iostream>
 #include <list>
 #include <signal.h>
-#include <string>
 #include <sys/types.h>
 #include <thread>
 #include <unistd.h>
@@ -38,7 +37,7 @@
 namespace bip = boost::interprocess;
 
 void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void()> f) {
-	timer.expires_after(std::chrono::seconds(1));
+	timer.expires_after(std::chrono::milliseconds(50));
 	timer.async_wait([&timer, f](const boost::system::error_code& ec) {
 		if (ec) {
 			return;
@@ -90,6 +89,15 @@ int main() {
 		std::this_thread::sleep_for(std::chrono::seconds(5));
 	};
 
+	boost::asio::signal_set stopSignals(io, SIGINT, SIGTERM, SIGHUP);
+	stopSignals.async_wait([&](const boost::system::error_code& error, int signalNumber) {
+		std::cout << "Got signal " << signalNumber << std::endl;
+		io.stop();
+		if (error.failed()) {
+			std::cout << "Error " << error.value() << std::endl;
+		}
+	});
+
 	try {
 		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), 12345);
 		boost::asio::ip::tcp::acceptor acceptor(io, endpoint);
@@ -112,16 +120,9 @@ int main() {
 	}
 	catch (std::exception& e) {
 		std::cerr << "Server error: " << e.what() << std::endl;
+		bip::xsi_shared_memory::remove(xsm.get_shmid());
+		return 1;
 	}
-
-	boost::asio::signal_set stopSignals(io, SIGINT, SIGTERM, SIGHUP);
-	stopSignals.async_wait([&](const boost::system::error_code& error, int signalNumber) {
-		std::cout << "Got signal " << signalNumber << std::endl;
-		io.stop();
-		if (error.failed()) {
-			std::cout << "Error " << error.value() << std::endl;
-		}
-	});
 
 	DoWorkTimer(timer, DoWork);
 	io.run();
