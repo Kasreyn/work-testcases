@@ -23,10 +23,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <signal.h>
-#include <sstream>
 #include <string>
 #include <sys/types.h>
 #include <thread>
@@ -38,51 +38,23 @@
 
 namespace bip = boost::interprocess;
 
-void updateShmData(unsigned char* data) {
-	for (std::size_t i = 0; i < 10; ++i) {
-		data[i] = data[i] + 1;
-		std::this_thread::sleep_for(std::chrono::milliseconds(500));
-	}
-	std::cout << "Server: New data written: ";
-	boost::io::ios_flags_saver ifs(std::cout);
-	for (std::size_t i = 0; i < 10; ++i) {
-		std::cout << "0x" << std::setw(2) << std::setfill('0') << std::hex << +data[i] << " ";
-	}
-	std::cout << std::endl;
-}
-
-void DoWork(boost::asio::steady_timer& timer, std::vector<bip::offset_ptr<ClientSync>>& syncObjects, unsigned char* data) {
-    timer.expires_after(std::chrono::seconds(1));
-    timer.async_wait([&timer, &syncObjects, data](const boost::system::error_code& ec) {
-        if (ec) {
+void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void ()> f) {
+	timer.expires_after(std::chrono::seconds(1));
+	timer.async_wait([&timer, f](const boost::system::error_code& ec) {
+		if (ec) {
 			return;
 		}
-
-		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
-		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
-		for (bip::offset_ptr<ClientSync> s : syncObjects) {
-			locks.emplace_back(s->mutex);
-			std::cout << s->shmName << " ";
-		}
-		std::cout << std::endl;
-
-		std::cout << "Server: Doing work" << std::endl;
-		updateShmData(data);
-
-		std::cout << "Server: Releasing all client locks" << std::endl;
-		locks.clear();
-
-		std::cout << "Server: Idle" << std::endl;
-		std::this_thread::sleep_for(std::chrono::seconds(5));
-
-		DoWork(timer, syncObjects, data);
-    });
+		f();
+		DoWorkTimer(timer, f);
+	});
 }
 
 int main() {
 	boost::asio::io_context io;
 	boost::asio::steady_timer timer(io);
 	std::vector<std::string> clientShmNames;
+	std::vector<bip::managed_shared_memory> regions;
+	std::vector<bip::offset_ptr<ClientSync>> syncObjects;
 	std::list<ClientXSI> clientXSIs;
 
 	boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_or_create,
@@ -94,6 +66,38 @@ int main() {
 	std::cout << "Shared memory address: " << meb.get_address() << ", size: " << meb.get_size()
 			  << std::endl;
 	unsigned char* data = meb.construct<unsigned char>("server buffer")[10](0x55);
+
+	auto updateShmData = [data]() {
+		for (std::size_t i = 0; i < 10; ++i) {
+			data[i] = data[i] + 1;
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+		}
+		std::cout << "Server: New data written: ";
+		boost::io::ios_flags_saver ifs(std::cout);
+		for (std::size_t i = 0; i < 10; ++i) {
+			std::cout << "0x" << std::setw(2) << std::setfill('0') << std::hex << +data[i] << " ";
+		}
+		std::cout << std::endl;
+	};
+
+	auto DoWork = [&syncObjects, &updateShmData]() {
+			std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
+			std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
+			for (bip::offset_ptr<ClientSync> s : syncObjects) {
+				locks.emplace_back(s->mutex);
+				std::cout << s->shmName << " ";
+			}
+			std::cout << std::endl;
+
+			std::cout << "Server: Doing work" << std::endl;
+			updateShmData();
+
+			std::cout << "Server: Releasing all client locks" << std::endl;
+			locks.clear();
+
+			std::cout << "Server: Idle" << std::endl;
+			std::this_thread::sleep_for(std::chrono::seconds(5));
+	};
 
 	boost::asio::signal_set stopSignals(io, SIGINT, SIGTERM, SIGHUP);
 	stopSignals.async_wait([&](const boost::system::error_code& error, int signalNumber) {
@@ -136,14 +140,13 @@ int main() {
 			socket.close();
 		}
 
-		std::vector<bip::managed_shared_memory> regions;
-		std::vector<bip::offset_ptr<ClientSync>> syncObjects;
+
 		for (std::string& s : clientShmNames) {
 			bip::managed_shared_memory& region = regions.emplace_back(bip::open_only, s.c_str());
 			syncObjects.push_back(region.find<ClientSync>("sync").first);
 		}
 
-		DoWork(timer, syncObjects, data);
+		DoWorkTimer(timer, DoWork);
 
 		io.run();
 	}
