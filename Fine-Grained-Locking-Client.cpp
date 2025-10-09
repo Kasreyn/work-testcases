@@ -45,36 +45,38 @@ int main() {
 		boost::asio::ip::address address = boost::asio::ip::address::from_string("127.0.0.1");
 		socket.connect(boost::asio::ip::tcp::endpoint(address, 12345));
 
-		unsigned int shmid;
-		boost::asio::read(socket, boost::asio::buffer(&shmid, sizeof(shmid)));
-		std::cout << "Client: The server has sent us its shared memory ID: " << shmid << std::endl;
+		unsigned int shmid_buf;
+		boost::asio::read(socket, boost::asio::buffer(&shmid_buf, sizeof(shmid_buf)));
+		std::cout << "Client: The server has sent us its shared memory buffer ID: " << shmid_buf << std::endl;
 
 		unsigned int uid;
 		boost::asio::read(socket, boost::asio::buffer(&uid, 4));
 		std::cout << "Client: The server has sent us its UID: " << uid << std::endl;
 
-		unsigned int shmid2;
-		boost::asio::read(socket, boost::asio::buffer(&shmid2, sizeof(shmid2)));
-		std::cout << "Client: The server has sent us its shared memory ID2: " << shmid2 << std::endl;
+		unsigned int shmid_cli;
+		boost::asio::read(socket, boost::asio::buffer(&shmid_cli, sizeof(shmid_cli)));
+		std::cout << "Client: The server has sent us its shared memory client ID: " << shmid_cli << std::endl;
 
-		boost::interprocess::xsi_shared_memory xsm(boost::interprocess::open_only, shmid);
-		boost::interprocess::mapped_region mr(xsm, boost::interprocess::read_only);
-		boost::interprocess::managed_external_buffer meb(boost::interprocess::open_only, mr.get_address(),
-														 mr.get_size());
-		std::pair<unsigned char*, std::size_t> p = meb.find<unsigned char>("server buffer");
-		unsigned char* data						 = p.first;
+		boost::interprocess::xsi_shared_memory xsm_buf(boost::interprocess::open_only, shmid_buf);
+		boost::interprocess::mapped_region mr_buf(xsm_buf, boost::interprocess::read_only);
+		boost::interprocess::managed_external_buffer meb_buf(boost::interprocess::open_only, mr_buf.get_address(),
+														 mr_buf.get_size());
+		std::pair<unsigned char*, std::size_t> p_buf = meb_buf.find<unsigned char>("server buffer");
+//		std::cout << "meb_buf.find size: " << p_buf.second << std::endl;
+		unsigned char* data						 = p_buf.first;
 
-		boost::interprocess::xsi_shared_memory xsm2(boost::interprocess::open_only, shmid2);
-		boost::interprocess::mapped_region mr2(xsm2, boost::interprocess::read_only);
-		boost::interprocess::managed_external_buffer meb2(boost::interprocess::open_only, mr2.get_address(),
-														 mr2.get_size());
-//		std::pair<ClientSync*, std::size_t> p2 = meb2.find<ClientSync>("sync");
-//		ClientSync* clientSync						 = p2.first;
+		boost::interprocess::xsi_shared_memory xsm_cli(boost::interprocess::open_only, shmid_cli);
+		boost::interprocess::mapped_region mr_cli(xsm_cli, boost::interprocess::read_write);
+		boost::interprocess::managed_external_buffer meb_cli(boost::interprocess::open_only, mr_cli.get_address(),
+														 mr_cli.get_size());
+		std::pair<ClientSync*, std::size_t> p_cli = meb_cli.find<ClientSync>("sync");
+//		std::cout << "meb_cli.find size: " << p_cli.second << std::endl;
+		ClientSync* clientSync						 = p_cli.first;
 //		bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(clientSync->mutex);
 
 		while (true) {
 			{
-//				bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(cs->mutex);
+				bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(clientSync->mutex);
 				std::cout << "Client " << std::this_thread::get_id() << " reading shared data..."
 						  << std::endl;
 				readShmData(data);
