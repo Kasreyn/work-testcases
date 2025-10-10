@@ -55,13 +55,14 @@ int main(int argc, char* argv[]) {
 	ClientSync* clientSync;
 
 	int opt;
-	unsigned int sleepLen = 1;
+	unsigned int sleepLen = 100;
 	while ((opt = getopt(argc, argv, "l:")) != -1) {
 		switch (opt) {
 			case 'l':
 				std::stringstream ss;
 				ss << optarg;
 				ss >> sleepLen;
+				std::cout << "Client: Lock will be held for " << sleepLen << " milliseconds" << std::endl;
 				break;
 		}
 	}
@@ -104,7 +105,7 @@ int main(int argc, char* argv[]) {
 			}
 			std::cout << std::flush;
 
-			std::this_thread::sleep_for(std::chrono::seconds(sleepLen));
+			std::this_thread::sleep_for(std::chrono::milliseconds(sleepLen));
 		}
 		std::cout << "(done)" << std::endl; // Read lock released
 

@@ -27,6 +27,7 @@
 #include <iomanip>
 #include <iostream>
 #include <list>
+#include <memory>
 #include <signal.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
@@ -53,7 +54,8 @@ void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void()> f) {
 int main() {
 	boost::asio::io_context io;
 	boost::asio::steady_timer timer(io);
-	std::list<ClientXSI> clientXSIs;
+	std::list<std::unique_ptr<ClientXSI>> activeClientXSIs;
+	std::list<std::unique_ptr<ClientXSI>> timedOutClientXSIs;
 
 	bip::xsi_shared_memory xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0644);
 	bip::mapped_region mr(xsm, bip::read_write);
@@ -63,7 +65,7 @@ int main() {
 	auto updateShmData = [data]() {
 		for (std::size_t i = 0; i < 10; ++i) {
 			data[i] = data[i] + 1;
-			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 		}
 		std::cout << "Server: New data written: ";
 		boost::io::ios_flags_saver ifs(std::cout);
@@ -73,23 +75,26 @@ int main() {
 		std::cout << std::endl;
 	};
 
-	auto DoWork = [&clientXSIs, &updateShmData]() {
+	auto DoWork = [&activeClientXSIs, &timedOutClientXSIs, &updateShmData]() {
 		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
 		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
 
-		for (std::list<ClientXSI>::iterator it = clientXSIs.begin(); it != clientXSIs.end();) {
-			auto deadline = boost::posix_time::second_clock::universal_time() + boost::posix_time::seconds(2);
-			bip::interprocess_upgradable_mutex& mutex = it->GetMutex();
+		for (std::list<std::unique_ptr<ClientXSI>>::iterator it = activeClientXSIs.begin();
+			 it != activeClientXSIs.end();) {
+			ClientXSI* cXSI = it->get();
+			auto deadline =
+				boost::posix_time::microsec_clock::universal_time() + boost::posix_time::milliseconds(500);
+			bip::interprocess_upgradable_mutex& mutex = cXSI->GetMutex();
 			bip::scoped_lock<bip::interprocess_upgradable_mutex> lock(mutex, bip::defer_lock);
 
 			if (!lock.timed_lock(deadline)) {
-				std::cout << it->GetKey() << " (Timeout deleted) ";
-				it = clientXSIs.erase(it);
+				std::cout << cXSI->GetKey() << " (Timeout detected / Deleted) ";
+				timedOutClientXSIs.splice(timedOutClientXSIs.end(), activeClientXSIs, it++);
 				continue;
 			}
 
 			locks.emplace_back(std::move(lock));
-			std::cout << it->GetKey() << " ";
+			std::cout << cXSI->GetKey() << " ";
 			++it;
 		}
 		std::cout << std::endl;
@@ -102,6 +107,18 @@ int main() {
 
 		std::cout << "Server: Idle" << std::endl;
 		std::this_thread::sleep_for(std::chrono::seconds(5));
+
+		for (std::list<std::unique_ptr<ClientXSI>>::iterator it = timedOutClientXSIs.begin();
+			 it != timedOutClientXSIs.end();) {
+			ClientXSI* cXSI = it->get();
+			if (cXSI->TimeoutExpired()) {
+				std::cout << "Server: Making " << cXSI->GetKey() << " active again" << std::endl;
+				cXSI->Reset();
+				activeClientXSIs.splice(activeClientXSIs.end(), timedOutClientXSIs, it++);
+				continue;
+			}
+			++it;
+		}
 	};
 
 	boost::asio::signal_set stopSignals(io, SIGINT, SIGTERM, SIGHUP);
@@ -121,10 +138,10 @@ int main() {
 		for (int i = 0; i < 2; i++) {
 			acceptor.accept(socket);
 
-			ClientXSI& cXSI		   = clientXSIs.emplace_back();
-			unsigned int shmid_buf = xsm.get_shmid();
+			std::unique_ptr<ClientXSI>& cXSI = activeClientXSIs.emplace_back(std::make_unique<ClientXSI>());
+			unsigned int shmid_buf			 = xsm.get_shmid();
 			unsigned int uid;
-			unsigned int shmid_cli = cXSI.GetKey();
+			unsigned int shmid_cli = cXSI->GetKey();
 
 			boost::asio::write(socket, boost::asio::buffer(&shmid_buf, sizeof(shmid_buf)));
 			std::cout << "Server: Sending shared memory buffer ID: " << shmid_buf << std::endl;
