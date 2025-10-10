@@ -60,6 +60,8 @@ int main() {
 	bip::xsi_shared_memory xsm(bip::open_or_create, bip::xsi_key{key_t(0)}, 4096, 0644);
 	bip::mapped_region mr(xsm, bip::read_write);
 	bip::managed_external_buffer meb(bip::create_only, mr.get_address(), mr.get_size());
+	SharedData* dynamicData = meb.construct<SharedData>("SharedData")(meb.get_segment_manager());
+	dynamicData->values = { 121, 232, 343 };
 	unsigned char* data = meb.construct<unsigned char>("server buffer")[10](0x55);
 
 	auto updateShmData = [data]() {
@@ -77,16 +79,14 @@ int main() {
 
 	auto DoWork = [&activeClientXSIs, &timedOutClientXSIs, &updateShmData]() {
 		using ClientXSI_iterator = std::list<std::unique_ptr<ClientXSI>>::iterator;
-
-		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
 		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
 
+		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
 		for (ClientXSI_iterator it = activeClientXSIs.begin(); it != activeClientXSIs.end();) {
 			ClientXSI* cXSI = it->get();
 			auto deadline =
 				boost::posix_time::microsec_clock::universal_time() + boost::posix_time::milliseconds(500);
-			bip::interprocess_upgradable_mutex& mutex = cXSI->GetMutex();
-			bip::scoped_lock<bip::interprocess_upgradable_mutex> lock(mutex, bip::defer_lock);
+			bip::scoped_lock<bip::interprocess_upgradable_mutex> lock(cXSI->GetMutex(), bip::defer_lock);
 
 			if (!lock.timed_lock(deadline)) {
 				std::cout << cXSI->GetKey() << " (Timeout detected / Deleted) ";

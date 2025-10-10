@@ -1,4 +1,6 @@
 #pragma once
+#include <boost/container/container_fwd.hpp>
+#include <boost/interprocess/containers/vector.hpp>
 #include <boost/interprocess/creation_tags.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/managed_external_buffer.hpp>
@@ -53,5 +55,16 @@ class ClientXSI {
 
 	bip::interprocess_upgradable_mutex& GetMutex() {
 		return client_sync->mutex;
+	}
+};
+
+struct SharedData {
+	using SegmentManager = bip::managed_external_buffer::segment_manager;
+	using ShmemAllocator = bip::allocator<int, SegmentManager>;
+	using ShmemVector	 = bip::vector<int, ShmemAllocator>;
+
+	ShmemVector values;
+
+	SharedData(SegmentManager* mgr) : values(mgr) {
 	}
 };

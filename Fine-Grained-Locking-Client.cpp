@@ -94,6 +94,14 @@ int main(int argc, char* argv[]) {
 	std::pair<ClientSync*, std::size_t> p_cli = meb_cli.find<ClientSync>("sync");
 	clientSync								  = p_cli.first;
 
+	std::pair<SharedData*, std::size_t> p_dynamicData = meb_buf.find<SharedData>("SharedData");
+	SharedData* dynamicData = p_dynamicData.first;
+	std::cout << "SharedData content: ";
+	for (int v : dynamicData->values) {
+		std::cout << v << " ";
+	}
+	std::cout << std::endl;
+
 	auto readShmData = [data, clientSync, sleepLen]() {
 		{
 			bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(clientSync->mutex);
