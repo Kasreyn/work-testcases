@@ -7,11 +7,14 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/signal_set.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/date_time/posix_time/posix_time_duration.hpp>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
 #include <boost/interprocess/creation_tags.hpp>
 #include <boost/interprocess/interprocess_fwd.hpp>
 #include <boost/interprocess/managed_external_buffer.hpp>
 #include <boost/interprocess/offset_ptr.hpp>
 #include <boost/interprocess/sync/interprocess_upgradable_mutex.hpp>
+#include <boost/interprocess/sync/lock_options.hpp>
 #include <boost/interprocess/xsi_key.hpp>
 #include <boost/interprocess/xsi_shared_memory.hpp>
 #include <boost/io/ios_state.hpp>
@@ -29,6 +32,7 @@
 #include <sys/shm.h>
 #include <sys/types.h>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "Fine-Grained-Locking-Common.hpp"
@@ -72,9 +76,21 @@ int main() {
 	auto DoWork = [&clientXSIs, &updateShmData]() {
 		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
 		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
-		for (ClientXSI& cXSI : clientXSIs) {
-			locks.emplace_back(cXSI.GetMutex());
-			std::cout << cXSI.GetKey() << " ";
+
+		for (std::list<ClientXSI>::iterator it = clientXSIs.begin(); it != clientXSIs.end();) {
+			auto deadline = boost::posix_time::second_clock::universal_time() + boost::posix_time::seconds(2);
+			bip::interprocess_upgradable_mutex& mutex = it->GetMutex();
+			bip::scoped_lock<bip::interprocess_upgradable_mutex> lock(mutex, bip::defer_lock);
+
+			if (!lock.timed_lock(deadline)) {
+				std::cout << it->GetKey() << " (Timeout deleted) ";
+				it = clientXSIs.erase(it);
+				continue;
+			}
+
+			locks.emplace_back(std::move(lock));
+			std::cout << it->GetKey() << " ";
+			++it;
 		}
 		std::cout << std::endl;
 
@@ -110,9 +126,9 @@ int main() {
 			unsigned int uid;
 			unsigned int shmid_cli = cXSI.GetKey();
 
-			boost::asio::write(socket, boost::asio::buffer(&shmid_buf, 4));
+			boost::asio::write(socket, boost::asio::buffer(&shmid_buf, sizeof(shmid_buf)));
 			std::cout << "Server: Sending shared memory buffer ID: " << shmid_buf << std::endl;
-			boost::asio::read(socket, boost::asio::buffer(&uid, 4));
+			boost::asio::read(socket, boost::asio::buffer(&uid, sizeof(uid)));
 			std::cout << "Server: The client has sent us a UID: " << uid << std::endl;
 
 			struct shmid_ds buf;
@@ -122,7 +138,7 @@ int main() {
 			buf.shm_perm.mode = 0600;
 			shmctl(shmid_cli, IPC_SET, &buf);
 
-			boost::asio::write(socket, boost::asio::buffer(&shmid_cli, 4));
+			boost::asio::write(socket, boost::asio::buffer(&shmid_cli, sizeof(shmid_cli)));
 			std::cout << "Server: Sending shared memory client ID: " << shmid_cli << std::endl;
 
 			socket.close();

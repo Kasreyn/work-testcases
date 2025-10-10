@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <iostream>
 #include <signal.h>
+#include <sstream>
 #include <thread>
 #include <unistd.h>
 #include <utility>
@@ -42,7 +43,7 @@ void DoWorkTimer(boost::asio::steady_timer& timer, std::function<void()> f) {
 	});
 }
 
-int main() {
+int main(int argc, char* argv[]) {
 	boost::asio::io_context io;
 	boost::asio::ip::tcp::socket socket(io);
 	boost::asio::ip::address address = boost::asio::ip::address::from_string("127.0.0.1");
@@ -53,12 +54,24 @@ int main() {
 	unsigned char* data;
 	ClientSync* clientSync;
 
+	int opt;
+	unsigned int sleepLen = 1;
+	while ((opt = getopt(argc, argv, "l:")) != -1) {
+		switch (opt) {
+			case 'l':
+				std::stringstream ss;
+				ss << optarg;
+				ss >> sleepLen;
+				break;
+		}
+	}
+
 	try {
 		socket.connect(boost::asio::ip::tcp::endpoint(address, 12345));
 
 		boost::asio::read(socket, boost::asio::buffer(&shmid_buf, sizeof(shmid_buf)));
 		std::cout << "Client: The server has sent us a shared memory buffer ID: " << shmid_buf << std::endl;
-		boost::asio::write(socket, boost::asio::buffer(&uid, 4));
+		boost::asio::write(socket, boost::asio::buffer(&uid, sizeof(uid)));
 		std::cout << "Client: Sending UID: " << uid << std::endl;
 		boost::asio::read(socket, boost::asio::buffer(&shmid_cli, sizeof(shmid_cli)));
 		std::cout << "Client: The server has sent us a shared memory client ID: " << shmid_cli << std::endl;
@@ -80,7 +93,7 @@ int main() {
 	std::pair<ClientSync*, std::size_t> p_cli = meb_cli.find<ClientSync>("sync");
 	clientSync								  = p_cli.first;
 
-	auto readShmData = [data, clientSync]() {
+	auto readShmData = [data, clientSync, sleepLen]() {
 		{
 			bip::sharable_lock<bip::interprocess_upgradable_mutex> lock(clientSync->mutex);
 
@@ -91,7 +104,7 @@ int main() {
 			}
 			std::cout << std::flush;
 
-			std::this_thread::sleep_for(std::chrono::seconds(1));
+			std::this_thread::sleep_for(std::chrono::seconds(sleepLen));
 		}
 		std::cout << "(done)" << std::endl; // Read lock released
 
