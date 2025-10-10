@@ -76,11 +76,12 @@ int main() {
 	};
 
 	auto DoWork = [&activeClientXSIs, &timedOutClientXSIs, &updateShmData]() {
+		using ClientXSI_iterator = std::list<std::unique_ptr<ClientXSI>>::iterator;
+
 		std::cout << "Server: Taking exclusive locks before modifying the shared buffer: ";
 		std::vector<bip::scoped_lock<bip::interprocess_upgradable_mutex>> locks;
 
-		for (std::list<std::unique_ptr<ClientXSI>>::iterator it = activeClientXSIs.begin();
-			 it != activeClientXSIs.end();) {
+		for (ClientXSI_iterator it = activeClientXSIs.begin(); it != activeClientXSIs.end();) {
 			ClientXSI* cXSI = it->get();
 			auto deadline =
 				boost::posix_time::microsec_clock::universal_time() + boost::posix_time::milliseconds(500);
@@ -108,8 +109,7 @@ int main() {
 		std::cout << "Server: Idle" << std::endl;
 		std::this_thread::sleep_for(std::chrono::seconds(5));
 
-		for (std::list<std::unique_ptr<ClientXSI>>::iterator it = timedOutClientXSIs.begin();
-			 it != timedOutClientXSIs.end();) {
+		for (ClientXSI_iterator it = timedOutClientXSIs.begin(); it != timedOutClientXSIs.end();) {
 			ClientXSI* cXSI = it->get();
 			if (cXSI->TimeoutExpired()) {
 				std::cout << "Server: Making " << cXSI->GetKey() << " active again" << std::endl;
@@ -131,7 +131,7 @@ int main() {
 	});
 
 	try {
-		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), 12345);
+		boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(), 4242);
 		boost::asio::ip::tcp::acceptor acceptor(io, endpoint);
 		boost::asio::ip::tcp::socket socket(io);
 

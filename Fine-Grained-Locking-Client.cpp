@@ -68,7 +68,7 @@ int main(int argc, char* argv[]) {
 	}
 
 	try {
-		socket.connect(boost::asio::ip::tcp::endpoint(address, 12345));
+		socket.connect(boost::asio::ip::tcp::endpoint(address, 4242));
 
 		boost::asio::read(socket, boost::asio::buffer(&shmid_buf, sizeof(shmid_buf)));
 		std::cout << "Client: The server has sent us a shared memory buffer ID: " << shmid_buf << std::endl;
